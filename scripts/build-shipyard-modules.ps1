@@ -110,13 +110,15 @@ if (-not $SkipCore) {
   Step 'Sidecar core build'
   . (Join-Path $PSScriptRoot 'whisper-build-env.ps1')
   # ort-sys (copy-dylibs) symlinks the downloaded ONNX Runtime libraries into
-  # the release profile dir, release/examples and release/deps (it derives
-  # that base from OUT_DIR via ancestors().nth(3)). Cargo has not created
-  # examples/ and deps/ yet when the build script runs on a cold target
-  # directory, so the symlink fails and the copy fallback panics with
-  # "The system cannot find the path specified." Pre-create them.
-  # NOTE: these live under release/, not directly under $CARGO_TARGET_DIR.
-  New-Item -ItemType Directory -Force -Path (Join-Path $coreDir 'release\examples'), (Join-Path $coreDir 'release\deps'), (Join-Path $coreDir 'release\build') | Out-Null
+  # three directories derived from OUT_DIR via ancestors().nth(3). Modern
+  # Cargo lays build-script output out as build/<pkg>/<hash>/out, so nth(3)
+  # is release/build — not release/ — and the destinations are release/build,
+  # release/build/examples and release/build/deps. Cargo has not created the
+  # latter two yet when the build script runs on a cold target directory, so
+  # the symlink fails and the copy fallback panics with "The system cannot
+  # find the path specified." Pre-create them at both levels so the fix does
+  # not depend on which side of that layout a Cargo version uses.
+  New-Item -ItemType Directory -Force -Path (Join-Path $coreDir 'release\build\examples'), (Join-Path $coreDir 'release\build\deps'), (Join-Path $coreDir 'release\examples'), (Join-Path $coreDir 'release\deps')
   $oldTarget = $env:CARGO_TARGET_DIR
   try {
     $env:CARGO_TARGET_DIR = $coreDir
