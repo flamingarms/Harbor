@@ -79,7 +79,6 @@ export function TrackerIdentity({
       </span>
 
       <span className="flex shrink-0 flex-wrap items-center gap-1.5">
-        {extra}
         {profileUrl && (
           <button
             type="button"
@@ -90,6 +89,7 @@ export function TrackerIdentity({
             <ExternalLink size={16} strokeWidth={2.2} />
           </button>
         )}
+        {extra}
         <button
           type="button"
           onClick={onDisconnect}

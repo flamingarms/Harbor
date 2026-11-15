@@ -18,6 +18,7 @@ import {
   type WatchlistStatus,
 } from "@/lib/simkl/list-status";
 import { useSimkl } from "@/lib/simkl/provider";
+import { requestSimklSync } from "@/lib/simkl/reconcile-watched";
 import type { SimklTarget } from "@/lib/simkl/types";
 import traktLogo from "@/assets/trakt.png";
 import publicmetadbLogo from "@/assets/publicmetadb.svg";
@@ -175,7 +176,11 @@ export function SimklMenuItems({
               label={t(SIMKL_STATUS_LABELS[s])}
               active={s === status}
               onClick={() => {
-                void setSimklStatus(target, s).catch(() => {});
+                void setSimklStatus(target, s)
+                  .then(() => {
+                    if (s === "completed") void requestSimklSync();
+                  })
+                  .catch(() => {});
                 onAction();
               }}
             />

@@ -42,7 +42,7 @@ type RawEpisode = {
   tvdb?: { season?: number; episode?: number };
 };
 type RawSeason = { number?: number; episodes?: RawEpisode[] };
-type RawNode = { title?: string; ids?: RawIds };
+type RawNode = { title?: string; poster?: string | null; ids?: RawIds };
 type RawEntry = {
   status?: string;
   movie?: RawNode;
@@ -52,11 +52,27 @@ type RawEntry = {
 };
 type RawAllItems = { movies?: RawEntry[]; shows?: RawEntry[]; anime?: RawEntry[] };
 
+export type SimklProgressEntry = {
+  /** Canonical Harbor id for the title: IMDb first, then tmdb:movie:/tmdb:tv:, mal:, kitsu:. */
+  id: string;
+  kind: "movie" | "show";
+  title?: string;
+  poster?: string | null;
+  status: WatchlistStatus;
+  /** Explicitly watched episodes, "S:E", for shows. Empty for movies. */
+  watched: Set<string>;
+  /** Every episode Simkl lists for the show, "S:E" (season >= 1). Empty for movies. */
+  seasons: Set<string>;
+};
+
 export type SimklProgress = {
   statuses: Map<string, WatchlistStatus>;
   watched: Map<string, Set<string>>;
   watchedAt: Map<string, Map<string, number>>;
   completedSeries: LibraryItem[];
+  /** One entry per title, so a reconcile can tell a movie from a show and can
+   * expand a Completed show without guessing which id spellings belong together. */
+  entries: SimklProgressEntry[];
 };
 
 function isStatus(s: string | undefined): s is WatchlistStatus {
@@ -93,6 +109,7 @@ async function pull(): Promise<SimklProgress> {
   const watched = new Map<string, Set<string>>();
   const watchedAt = new Map<string, Map<string, number>>();
   const completedSeries: LibraryItem[] = [];
+  const progressEntries: SimklProgressEntry[] = [];
   const add = async (entries: RawEntry[] | undefined, kind: "movie" | "show", isAnime = false) => {
     let sliceStarted = performance.now();
     for (const e of entries ?? []) {
@@ -106,6 +123,23 @@ async function pull(): Promise<SimklProgress> {
       const keys = idKeys(node?.ids, kind);
       if (keys.length === 0) continue;
       if (isStatus(e.status)) for (const k of keys) statuses.set(k, e.status);
+      if (kind === "movie" && isStatus(e.status)) {
+        progressEntries.push({
+          id: keys[0],
+          kind,
+          title: node?.title,
+          poster: node?.poster ?? null,
+          status: e.status,
+          watched: new Set(),
+          seasons: new Set(),
+        });
+      }
+      // Every episode Simkl lists for the show, whether or not it carries a
+      // watched_at timestamp. A Completed show with no per-episode history is
+      // expanded to exactly this set; the payload carries no air dates, so
+      // "released" here means "listed by Simkl". Specials (season 0) are out.
+      const allSeasons = new Set<string>();
+      const mappedAllSeasons = new Set<string>();
       if (kind === "show" && e.seasons) {
         const eps = new Set<string>();
         const times = new Map<string, number>();
@@ -117,6 +151,17 @@ async function pull(): Promise<SimklProgress> {
             if (performance.now() - sliceStarted >= 4) {
               await yieldToBrowser();
               sliceStarted = performance.now();
+            }
+            if (s.number != null && s.number >= 1 && ep.number != null && ep.number >= 1) {
+              allSeasons.add(`${s.number}:${ep.number}`);
+              if (
+                isAnime &&
+                ep.tvdb?.season != null &&
+                ep.tvdb.season >= 1 &&
+                ep.tvdb.episode != null &&
+                ep.tvdb.episode >= 1
+              )
+                mappedAllSeasons.add(`${ep.tvdb.season}:${ep.tvdb.episode}`);
             }
             if (ep.watched_at && s.number != null && ep.number != null) {
               const key = `${s.number}:${ep.number}`;
@@ -157,6 +202,19 @@ async function pull(): Promise<SimklProgress> {
             watchedAt.set(k, merged);
           }
         }
+        if (isStatus(e.status)) {
+          const canonical = keys[0];
+          const mapped = isAnime && !/^(mal|kitsu|anilist|anidb):/.test(canonical);
+          progressEntries.push({
+            id: canonical,
+            kind,
+            title: node?.title,
+            poster: node?.poster ?? null,
+            status: e.status,
+            watched: new Set(mapped ? mappedEps : eps),
+            seasons: new Set(mapped ? mappedAllSeasons : allSeasons),
+          });
+        }
         const anchorId = isAnime ? keys.find((k) => /^(kitsu|mal|anilist):/.test(k)) : keys[0];
         if (
           anchorId &&
@@ -189,6 +247,18 @@ async function pull(): Promise<SimklProgress> {
             external: "simkl",
           });
         }
+      } else if (kind === "show" && isStatus(e.status)) {
+        // A show Simkl lists without any seasons payload: nothing to expand,
+        // but the entry still records the Completed status.
+        progressEntries.push({
+          id: keys[0],
+          kind,
+          title: node?.title,
+          poster: node?.poster ?? null,
+          status: e.status,
+          watched: new Set(),
+          seasons: new Set(),
+        });
       }
     }
   };
@@ -202,7 +272,7 @@ async function pull(): Promise<SimklProgress> {
       watched: watched.size,
     });
   }
-  return { statuses, watched, watchedAt, completedSeries };
+  return { statuses, watched, watchedAt, completedSeries, entries: progressEntries };
 }
 
 async function loadData(): Promise<SimklProgress> {
@@ -369,10 +439,25 @@ export async function setSimklStatus(
   );
   const echoed = r?.added?.[bucket]?.[0]?.to;
   const final = isStatus(echoed) ? echoed : status;
-  const statuses = await loadData()
-    .then((data) => data.statuses)
-    .catch(() => null);
-  if (statuses) for (const k of targetKeys(target)) statuses.set(k, final);
+  const data = await loadData().catch(() => null);
+  if (data) {
+    for (const k of targetKeys(target)) data.statuses.set(k, final);
+    // Keep the cached entries in step so a reconcile triggered by this change
+    // sees the new status without waiting for the next full pull.
+    const keys = targetKeys(target);
+    if (keys.length > 0) {
+      const existing = data.entries.find((e) => e.id === keys[0] || keys.includes(e.id));
+      if (existing) existing.status = final;
+      else
+        data.entries.push({
+          id: keys[0],
+          kind: target.kind === "movie" ? "movie" : "show",
+          status: final,
+          watched: new Set(),
+          seasons: new Set(),
+        });
+    }
+  }
   return final;
 }
 
@@ -380,8 +465,10 @@ export async function clearSimklStatus(target: SimklTarget): Promise<void> {
   const ids = simklTargetIds(target);
   const bucket = target.kind === "movie" ? "movies" : "shows";
   await simklRequest("/sync/history/remove", { method: "POST", body: { [bucket]: [{ ids }] } });
-  const statuses = await loadData()
-    .then((data) => data.statuses)
-    .catch(() => null);
-  if (statuses) for (const k of targetKeys(target)) statuses.delete(k);
+  const data = await loadData().catch(() => null);
+  if (data) {
+    const keys = targetKeys(target);
+    for (const k of keys) data.statuses.delete(k);
+    data.entries = data.entries.filter((e) => !keys.includes(e.id));
+  }
 }

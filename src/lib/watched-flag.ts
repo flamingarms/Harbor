@@ -101,6 +101,27 @@ export function reconcileNuvioWatchedFlags(
   for (const fn of subs) fn();
 }
 
+/**
+ * Additive Simkl import: union a batch of ids into the current watched-flag
+ * scope in a single write, instead of one localStorage write per title.
+ * Returns how many ids were newly flagged.
+ */
+export function reconcileSimklWatchedFlags(ids: ReadonlySet<string>): number {
+  if (!canPersistWatched() || ids.size === 0) return 0;
+  const current = load();
+  const next = new Set(current);
+  let added = 0;
+  for (const id of ids) {
+    if (next.has(id)) continue;
+    added += 1;
+    const clean = id.replace(/^(series|movie|tmdb):/, "").trim();
+    for (const v of [id, clean, `series:${clean}`, `movie:${clean}`]) next.add(v);
+  }
+  if (added === 0) return 0;
+  persist(next);
+  return added;
+}
+
 export function isWatchedFlagged(metaId: string): boolean {
   const set = load();
   if (set.has(metaId)) return true;

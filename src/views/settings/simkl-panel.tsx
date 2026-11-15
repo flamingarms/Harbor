@@ -1,8 +1,10 @@
 import { TrackerIdentity } from "./tracker-identity";
 import simklLogo from "@/assets/simkl.png";
 import { TrackerConnect } from "./tracker-connect";
-import { Info, LogOut, PenLine, Radio, Star } from "./icons";
-import { useEffect, useState } from "react";
+import { AlertCircle, Info, Loader2, LogOut, PenLine, Radio, RefreshCw, Star } from "./icons";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { emitListToast } from "@/components/lists/list-toast";
+import { requestSimklSync } from "@/lib/simkl/reconcile-watched";
 import { SimklDeviceModal } from "@/components/simkl/simkl-device-modal";
 import { useProfiles } from "@/lib/profiles";
 import { useSettings } from "@/lib/settings";
@@ -25,6 +27,55 @@ export function SimklPanel() {
   const [modalOpen, setModalOpen] = useState(false);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   const [simklAvatar, setSimklAvatar] = useState<string | null>(null);
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const syncMountedRef = useRef(true);
+  const syncInFlightRef = useRef(false);
+
+  useEffect(() => {
+    syncMountedRef.current = true;
+    return () => {
+      syncMountedRef.current = false;
+    };
+  }, []);
+
+  const syncNow = useCallback(async () => {
+    // The disabled button already blocks clicks, but a double-click can land
+    // before React commits the state update; the ref blocks it synchronously.
+    if (syncInFlightRef.current) return;
+    syncInFlightRef.current = true;
+    setSyncBusy(true);
+    setSyncError(null);
+    try {
+      // The 1-second minimum runs in parallel with the sync, never after it,
+      // so a genuine multi-second sync is not made a second longer. The timer
+      // is deliberately not cleared on unmount: the sync lives in the lib
+      // layer and the toast must still appear if the user leaves Settings
+      // mid-sync. Only state updates are guarded by the mounted ref.
+      const [result] = await Promise.all([
+        requestSimklSync(true),
+        new Promise((resolve) => setTimeout(resolve, 1000)),
+      ]);
+      if (result.ok) {
+        emitListToast(
+          t(
+            result.addedMovies + result.addedEpisodes > 0
+              ? "Simkl sync complete"
+              : "Already up to date",
+          ),
+        );
+      } else {
+        if (syncMountedRef.current) setSyncError(result.message);
+        emitListToast(t(result.message), "error");
+      }
+    } catch {
+      if (syncMountedRef.current) setSyncError(t("Couldn't reach Simkl"));
+      emitListToast(t("Couldn't reach Simkl"), "error");
+    } finally {
+      syncInFlightRef.current = false;
+      if (syncMountedRef.current) setSyncBusy(false);
+    }
+  }, [t]);
 
   useEffect(() => {
     if (!isConnected) {
@@ -94,6 +145,28 @@ export function SimklPanel() {
                 username ? `https://simkl.com/${encodeURIComponent(username)}` : undefined
               }
               onDisconnect={() => setConfirmDisconnect(true)}
+              extra={
+                <button
+                  type="button"
+                  disabled={syncBusy}
+                  aria-busy={syncBusy}
+                  onClick={() => void syncNow()}
+                  className="harbor-press-pop flex h-11 items-center gap-2 rounded-[8px] bg-canvas px-4 text-[15px] font-semibold text-ink-muted transition-colors hover:text-ink disabled:opacity-60"
+                >
+                  {syncBusy ? (
+                    <Loader2
+                      size={16}
+                      strokeWidth={2.2}
+                      className="animate-spin motion-reduce:animate-none"
+                    />
+                  ) : syncError ? (
+                    <AlertCircle size={16} strokeWidth={2.2} className="text-danger" />
+                  ) : (
+                    <RefreshCw size={16} strokeWidth={2.2} />
+                  )}
+                  {syncBusy ? t("Syncing…") : t("Sync now")}
+                </button>
+              }
             />
 
             {simklAvatar && (

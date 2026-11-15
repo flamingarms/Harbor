@@ -31,6 +31,7 @@ import {
   type WatchlistStatus,
 } from "@/lib/simkl/list-status";
 import { useSimkl } from "@/lib/simkl/provider";
+import { requestSimklSync } from "@/lib/simkl/reconcile-watched";
 import type { SimklTarget } from "@/lib/simkl/types";
 
 const ANIME_ID_RE = /^(kitsu|mal|anilist|anidb):/;
@@ -114,7 +115,10 @@ function useBpSimkl(
       const next = id as WatchlistStatus;
       setStatus(next);
       void setSimklStatus(target, next)
-        .then(setStatus)
+        .then((saved) => {
+          setStatus(saved);
+          if (saved === "completed") void requestSimklSync();
+        })
         .catch(() => setStatus(status));
     },
     [target, status],
