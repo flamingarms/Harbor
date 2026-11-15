@@ -102,6 +102,7 @@ const movieWatched = loadModule("src/lib/movie-watched.ts") as {
 };
 const watchedFlag = loadModule("src/lib/watched-flag.ts") as {
   isWatchedFlagged: (metaId: string) => boolean;
+  setWatchedFlag: (metaId: string, watched: boolean) => void;
 };
 
 function fixtureProgress(
@@ -204,6 +205,28 @@ test("a locally unmarked episode is not re-marked by the sync", async () => {
   const keys = manualWatched.manualEpisodeKeys("tt202");
   assert.deepEqual([...keys.watched].sort(), ["1:1"]);
   assert.deepEqual([...keys.unwatched].sort(), ["1:2"]);
+});
+
+test("a completed movie that is flagged but missing from the movie store still gains a movie-store entry", async () => {
+  profileId = "fixture-flag-only";
+  watchedFlag.setWatchedFlag("tt404", true);
+  assert.ok(!movieWatched.isMovieWatchedLocal("tt404"));
+  progressFixture = fixtureProgress([{ id: "tt404", kind: "movie", status: "completed" }]);
+  const result = await reconcile.requestSimklSync(true);
+  assert.deepEqual(result, { ok: true, addedMovies: 1, addedEpisodes: 0 });
+  assert.ok(movieWatched.isMovieWatchedLocal("tt404"));
+  assert.ok(watchedFlag.isWatchedFlagged("tt404"));
+});
+
+test("a completed movie already in the movie store still gains the flag if it is missing", async () => {
+  profileId = "fixture-movie-only";
+  movieWatched.setMovieWatchedLocal("tt505", true);
+  assert.ok(!watchedFlag.isWatchedFlagged("tt505"));
+  progressFixture = fixtureProgress([{ id: "tt505", kind: "movie", status: "completed" }]);
+  const result = await reconcile.requestSimklSync(true);
+  assert.deepEqual(result, { ok: true, addedMovies: 0, addedEpisodes: 0 });
+  assert.ok(movieWatched.isMovieWatchedLocal("tt505"));
+  assert.ok(watchedFlag.isWatchedFlagged("tt505"));
 });
 
 test("already-watched titles are a no-op", async () => {

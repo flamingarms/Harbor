@@ -50,10 +50,17 @@ function diffAndCommit(progress: SimklProgress): SimklSyncResult {
   for (const entry of progress.entries) {
     if (entry.status !== "completed") continue;
     if (entry.kind === "movie") {
-      if (isMovieWatchedLocal(entry.id) || isWatchedFlagged(entry.id)) continue;
-      movieIds.add(entry.id);
-      flagIds.add(entry.id);
-      addedMovies += 1;
+      // Each store is checked independently. The Detail Watched button reads
+      // the movie store only, not the flag, so a movie that is flagged but
+      // missing from the movie store must still gain a movie-store entry —
+      // otherwise the sync reports "already up to date" while the button
+      // shows unwatched. (Found by live testing: two Completed movies were
+      // flagged but absent from the movie store.)
+      if (!isMovieWatchedLocal(entry.id)) {
+        movieIds.add(entry.id);
+        addedMovies += 1;
+      }
+      if (!isWatchedFlagged(entry.id)) flagIds.add(entry.id);
       continue;
     }
     // Shows: trust Simkl's explicit episode list exactly. Only a Completed
