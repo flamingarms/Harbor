@@ -109,6 +109,12 @@ if (-not $SkipMusic) {
 if (-not $SkipCore) {
   Step 'Sidecar core build'
   . (Join-Path $PSScriptRoot 'whisper-build-env.ps1')
+  # ort-sys (copy-dylibs) symlinks the downloaded ONNX Runtime libraries into
+  # $CARGO_TARGET_DIR, $CARGO_TARGET_DIR/examples and $CARGO_TARGET_DIR/deps.
+  # Cargo never creates the latter two, so on a cold target directory the
+  # symlink into examples/ fails and the copy fallback panics with
+  # "The system cannot find the path specified." Pre-create them.
+  New-Item -ItemType Directory -Force -Path (Join-Path $coreDir 'examples'), (Join-Path $coreDir 'deps') | Out-Null
   $oldTarget = $env:CARGO_TARGET_DIR
   try {
     $env:CARGO_TARGET_DIR = $coreDir
