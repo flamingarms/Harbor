@@ -16,6 +16,7 @@ import {
   statusForId,
   type WatchlistStatus,
 } from "@/lib/simkl/list-status";
+import { requestSimklSync } from "@/lib/simkl/reconcile-watched";
 import type { SimklTarget } from "@/lib/simkl/types";
 import { useSettings } from "@/lib/settings";
 import { useT } from "@/lib/i18n";
@@ -108,6 +109,8 @@ export function AddToSimklButton({
       const saved = await setSimklStatus(target, next);
       setStatus(saved);
       notifyTrackerStatusChanged();
+      // Completed implies local watched; the central reconcile marks it.
+      if (saved === "completed") void requestSimklSync();
     } catch (e) {
       setStatus(prev);
       flash(errMsg(t, e));

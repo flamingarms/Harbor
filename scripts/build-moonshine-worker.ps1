@@ -25,6 +25,18 @@ if (-not (Test-Path -LiteralPath $venvPython)) {
   & python -m venv (Join-Path $toolchain 'venv')
   if ($LASTEXITCODE -ne 0) { throw 'Python 3 is needed only on the machine building the Windows runtime.' }
 }
+# The venv lives under src-tauri/target, which the Rust build cache restores
+# across runs. A restored venv can keep its interpreter but lose its working
+# pip, and the pip install below then fails with "No module named
+# pip.__main__". Existence of python.exe is not enough, so verify pip and
+# recreate the venv when it is broken instead of trusting it.
+& $venvPython -m pip --version | Out-Null
+if ($LASTEXITCODE -ne 0) {
+  Write-Host 'Moonshine venv has no working pip; recreating it.'
+  Remove-Item -LiteralPath (Join-Path $toolchain 'venv') -Recurse -Force
+  & python -m venv (Join-Path $toolchain 'venv')
+  if ($LASTEXITCODE -ne 0) { throw 'Python 3 is needed only on the machine building the Windows runtime.' }
+}
 & $venvPython -m pip install --disable-pip-version-check --upgrade 'moonshine-voice==0.1.6' 'pyinstaller==6.16.0'
 if ($LASTEXITCODE -ne 0) { throw 'Moonshine build dependency installation failed' }
 

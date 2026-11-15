@@ -23,6 +23,7 @@ import { stremioIdToSimklTarget } from "./ids";
 import { addToHistory } from "./history";
 import { armPendingFlush, flushPendingWatches } from "./pending-sync";
 import { recordWatchedFallback } from "./record-watched";
+import { requestSimklSync } from "./reconcile-watched";
 import { simklScrobble } from "./scrobble";
 import type { SimklPin, SimklSession, SimklTarget } from "./types";
 
@@ -93,7 +94,11 @@ export function SimklProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
-    if (session) void flushPendingWatches().catch(() => {});
+    if (session) {
+      void flushPendingWatches().catch(() => {});
+      // First connect imports Simkl Completed titles as native Watched.
+      void requestSimklSync(true);
+    }
   }, [session]);
 
   const beginConnect = useCallback(async () => {

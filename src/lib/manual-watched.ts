@@ -476,6 +476,47 @@ export function reconcileNuvioWatchedEpisodes(
   return { changed, newlyWatchedShows };
 }
 
+/**
+ * Additive Simkl import: union a batch of episode keys ("metaId|S|E") into the
+ * current scope in a single write, instead of one localStorage write per
+ * episode. An episode the user manually unmarked (present in the unwatched
+ * set) is an explicit override and is never re-marked. Returns how many
+ * episodes were newly marked, and records series meta for shows that gained
+ * episodes so they appear in the manual-watched library.
+ */
+export function reconcileSimklWatchedEpisodes(
+  episodeKeys: ReadonlySet<string>,
+  metas: ReadonlyMap<string, ManualWatchedMeta>,
+): number {
+  if (!canPersistWatched() || episodeKeys.size === 0) return 0;
+  ensureScope();
+  const on = new Set(watchedSet());
+  const off = new Set(unwatchedSet());
+  const at = unwatchedAtMap();
+  const wat = watchedAtMap();
+  const now = Date.now();
+  const showsWithAdditions = new Set<string>();
+  let added = 0;
+  for (const k of episodeKeys) {
+    if (on.has(k) || off.has(k)) continue;
+    on.add(k);
+    delete at[k];
+    wat[k] = now;
+    added += 1;
+    const showId = k.split("|")[0];
+    if (showId) showsWithAdditions.add(showId);
+  }
+  if (added === 0) return 0;
+  persistUnwatchedAt();
+  persistWatchedAt();
+  persist(on, off);
+  for (const showId of showsWithAdditions) {
+    const meta = metas.get(showId);
+    if (meta) recordManualWatchedMeta(showId, meta);
+  }
+  return added;
+}
+
 export function manualWatchedRawKeys(): string[] {
   return [...watchedSet()];
 }
