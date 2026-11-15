@@ -50,6 +50,9 @@ function fixture() {
     "./history": {},
     "./pending-sync": { armPendingFlush: () => () => {}, flushPendingWatches: async () => {} },
     "./record-watched": {},
+    "./reconcile-watched": {
+      requestSimklSync: async () => ({ ok: true, addedMovies: 0, addedEpisodes: 0 }),
+    },
     "./scrobble": {},
     // The provider re-reads the session when the persisted secret store lands.
     "@/lib/secret-store": {
