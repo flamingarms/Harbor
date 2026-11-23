@@ -4,11 +4,10 @@ import type { Meta } from "@/lib/cinemeta";
 import { safeFetch as fetch } from "@/lib/safe-fetch";
 import { useLetterboxd } from "@/lib/stremboxd/provider";
 import { fetchLetterboxdStreams, type LetterboxdStreamInfo } from "@/lib/stremboxd/client";
+import { buildRateSubmitUrl, parseRateUrl } from "@/lib/stremboxd/rating";
 import { letterboxdFilmUrl } from "@/lib/stremboxd/to-meta";
 import { openUrl } from "@/lib/window";
 import { useT } from "@/lib/i18n";
-
-const STREMBOXD_BASE = "https://api.stremboxd.com";
 
 class LetterboxdSectionBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
@@ -40,36 +39,6 @@ function toggleSetParam(url: string, nextSet: boolean): string {
   } catch {
     return url.replace(/set=[^&]+/, `set=${nextSet}`);
   }
-}
-
-function parseRateUrl(
-  rateUrl: string,
-): { userId: string; filmId: string; tok: string; imdb: string } | null {
-  try {
-    const u = new URL(rateUrl);
-    const parts = u.pathname.split("/").filter(Boolean);
-    // /action/:userId/rate/:filmId
-    if (parts.length < 4 || parts[2] !== "rate") return null;
-    return {
-      userId: parts[1]!,
-      filmId: parts[3]!,
-      tok: u.searchParams.get("tok") ?? "",
-      imdb: u.searchParams.get("imdb") ?? "",
-    };
-  } catch {
-    return null;
-  }
-}
-
-function buildRateSubmitUrl(
-  parsed: { userId: string; filmId: string; tok: string; imdb: string },
-  rating: number | "remove",
-): string {
-  const params = new URLSearchParams();
-  if (parsed.imdb) params.set("imdb", parsed.imdb);
-  params.set("tok", parsed.tok);
-  params.set("rating", rating === "remove" ? "remove" : rating.toFixed(1));
-  return `${STREMBOXD_BASE}/action/${parsed.userId}/rate/${parsed.filmId}/submit?${params.toString()}`;
 }
 
 const RATING_STARS = 5;

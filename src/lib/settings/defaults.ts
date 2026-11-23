@@ -90,6 +90,7 @@ export const DEFAULT: Settings = {
   showSimklDetail: true,
   showDubBadge: true,
   simklEnableUserRatings: true,
+  ratingProviderOrder: [],
   simklGranularFilters: {
     movies: {
       plantowatch: true,

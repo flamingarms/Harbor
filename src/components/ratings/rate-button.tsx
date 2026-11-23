@@ -3,6 +3,8 @@ import { UiIcon } from "@/components/ui-icon";
 import { HoverTooltip } from "@/components/hover-tooltip";
 import { useT } from "@/lib/i18n";
 import { useRating } from "@/lib/ratings/store";
+import { useHierarchyRating } from "@/lib/ratings/hierarchy";
+import { RATING_PROVIDER_LABELS } from "@/lib/ratings/hierarchy-order";
 import type { RatingTarget } from "@/lib/ratings/types";
 import { RatingModal } from "./rating-modal";
 
@@ -27,19 +29,35 @@ export function RateButton({
   const t = useT();
   const existing = useRating(target.itemKey);
   const [open, setOpen] = useState(false);
-  const score = existing?.score ?? 0;
+  // Read-first: a connected tracker's rating wins over the Harbor-local one;
+  // the local rating remains the fallback when no tracker has rated the title.
+  const {
+    rating: hierarchyRating,
+    writeRating,
+    removeRating,
+  } = useHierarchyRating({
+    harborId: target.itemKey,
+    mediaType: target.mediaType,
+    imdbId: target.imdbId,
+  });
+  const hierarchy = hierarchyRating
+    ? { score: hierarchyRating.score, source: RATING_PROVIDER_LABELS[hierarchyRating.provider] }
+    : null;
+  const score = hierarchy?.score ?? existing?.score ?? 0;
+
+  const tooltipLabel = hierarchy
+    ? t("Rated {n}/10 on {source}", { n: hierarchy.score, source: hierarchy.source })
+    : score
+      ? t("Your rating {n}/10", { n: score })
+      : t("Rate this");
 
   return (
     <>
-      <HoverTooltip
-        label={score ? t("Your rating {n}/10", { n: score }) : t("Rate this")}
-        align="center"
-        className="shrink-0"
-      >
+      <HoverTooltip label={tooltipLabel} align="center" className="shrink-0">
         <button
           type="button"
           onClick={() => setOpen(true)}
-          aria-label={score ? t("Your rating {n}/10", { n: score }) : t("Rate this")}
+          aria-label={tooltipLabel}
           className={`group flex h-12 w-12 shrink-0 items-center justify-center rounded-full transition-[transform,background-color] duration-200 active:scale-[0.94] ${
             score ? TONE[tone].active : TONE[tone].idle
           }`}
@@ -51,7 +69,15 @@ export function RateButton({
           )}
         </button>
       </HoverTooltip>
-      {open && <RatingModal target={target} onClose={() => setOpen(false)} />}
+      {open && (
+        <RatingModal
+          target={target}
+          hierarchy={hierarchy}
+          onSaveToTrackers={writeRating}
+          onRemoveFromTrackers={removeRating}
+          onClose={() => setOpen(false)}
+        />
+      )}
     </>
   );
 }

@@ -1,4 +1,5 @@
 import type { CalendarPosterSize } from "@/lib/calendar";
+import type { RatingProviderId } from "@/lib/ratings/types";
 import type { ControllerCursorId } from "@/lib/gamepad/cursor";
 import type { ThemeSettings } from "@/lib/theme";
 import type { CustomList } from "@/lib/lists/types";
@@ -190,6 +191,8 @@ export type Settings = {
   showSimklDetail: boolean;
   showDubBadge: boolean;
   simklEnableUserRatings: boolean;
+  /** Priority order for reading tracker ratings (first hit wins). Auto-fills in login order. */
+  ratingProviderOrder: RatingProviderId[];
   simklGranularFilters: SimklGranularFilters;
   cardBadgeLimit: number;
   showQualityBadge: boolean;

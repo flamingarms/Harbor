@@ -11,6 +11,7 @@ import { ROW_DESC, Section, ToggleRow } from "./shared";
 import traktLogo from "@/assets/trakt.svg";
 import { ModalButton, ROW_ACTION_DANGER, SettingsModal } from "./kit";
 import { TrackerIdentity } from "./tracker-identity";
+import { RatingHierarchyList } from "./rating-hierarchy-list";
 import { WatchlistSync } from "./trakt-panel/watchlist-sync";
 import { isNuvioProviderActive } from "@/lib/active-profile-id";
 import { resolveNuvioProfileIndex } from "@/lib/nuvio/nuvio-sync";
@@ -171,6 +172,7 @@ export function TraktPanel() {
       </Section>
 
       {modalOpen && <TraktDeviceModal onClose={() => setModalOpen(false)} />}
+      <RatingHierarchyList />
     </>
   );
 }

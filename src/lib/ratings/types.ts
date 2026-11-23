@@ -1,5 +1,8 @@
 export type RatingMediaType = "movie" | "series" | "anime" | "manga";
 
+/** Trackers whose ratings participate in the read hierarchy / write fan-out. */
+export type RatingProviderId = "trakt" | "simkl" | "letterboxd";
+
 export type MyRating = {
   itemKey: string;
   mediaType: RatingMediaType;
@@ -16,6 +19,8 @@ export type RatingTarget = {
   mediaType: RatingMediaType;
   title: string;
   poster?: string;
+  /** IMDb id when known. Not part of the Harbor rating identity; used to resolve tracker ratings. */
+  imdbId?: string | null;
 };
 
 export type PublicRating = {
@@ -75,7 +80,7 @@ export function inferRatingMediaType(
 }
 
 export function ratingTarget(
-  meta: { id: string; name?: string; title?: string; poster?: string },
+  meta: { id: string; name?: string; title?: string; poster?: string; imdbId?: string | null },
   mediaType: RatingMediaType,
 ): RatingTarget {
   return {
@@ -83,5 +88,6 @@ export function ratingTarget(
     mediaType,
     title: (meta.name ?? meta.title ?? "").slice(0, 300),
     poster: meta.poster,
+    imdbId: meta.imdbId ?? null,
   };
 }
