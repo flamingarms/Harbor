@@ -25,6 +25,14 @@ if (-not (Test-Path -LiteralPath $venvPython)) {
   & python -m venv (Join-Path $toolchain 'venv')
   if ($LASTEXITCODE -ne 0) { throw 'Python 3 is needed only on the machine building the Windows runtime.' }
 }
+# A venv restored from the Rust build cache can keep python.exe while pip is
+# broken; recreate it instead of failing the Moonshine step outright.
+& $venvPython -m pip --version | Out-Null
+if ($LASTEXITCODE -ne 0) {
+  Remove-Item (Join-Path $toolchain 'venv') -Recurse -Force
+  & python -m venv (Join-Path $toolchain 'venv')
+  if ($LASTEXITCODE -ne 0) { throw 'Python 3 is needed only on the machine building the Windows runtime.' }
+}
 & $venvPython -m pip install --disable-pip-version-check --upgrade 'moonshine-voice==0.1.6' 'pyinstaller==6.16.0'
 if ($LASTEXITCODE -ne 0) { throw 'Moonshine build dependency installation failed' }
 
