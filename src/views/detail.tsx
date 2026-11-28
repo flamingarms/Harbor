@@ -2909,6 +2909,7 @@ function DetailContent({
                         id: meta.id,
                         name: title || meta.name,
                         poster: poster,
+                        imdbId: detail?.imdbId ?? null,
                       },
                       isAnime ? "anime" : isSeries ? "series" : "movie",
                     )}

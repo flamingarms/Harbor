@@ -1,4 +1,5 @@
 import { TrackerIdentity } from "./tracker-identity";
+import { RatingHierarchyList } from "./rating-hierarchy-list";
 import simklLogo from "@/assets/simkl.png";
 import { TrackerConnect } from "./tracker-connect";
 import { Info, LogOut, PenLine, Radio, Star } from "./icons";
@@ -300,6 +301,7 @@ export function SimklPanel() {
       )}
 
       {modalOpen && <SimklDeviceModal onClose={() => setModalOpen(false)} />}
+      <RatingHierarchyList />
     </>
   );
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { safeFetch } from "@/lib/safe-fetch";
 import { simklRequest } from "./client";
+import { getSession } from "./session";
 import type { SimklIds, SimklTarget } from "./types";
 import { updateCachedRatingByTarget, getCachedRatingByTarget } from "./activities";
 import { HARBOR_API_BASE } from "@/lib/config/endpoints";
@@ -136,6 +137,7 @@ export async function addSimklRating(target: SimklTarget, rating: number): Promi
       body: { [key]: [{ rating, ids }] },
     });
     updateCachedRatingByTarget(target, rating);
+    invalidateUserRatings();
     return true;
   } catch (e) {
     console.error("Failed to add SIMKL rating", e);
@@ -151,9 +153,104 @@ export async function removeSimklRating(target: SimklTarget): Promise<boolean> {
       body: { [key]: [{ ids }] },
     });
     updateCachedRatingByTarget(target, null);
+    invalidateUserRatings();
     return true;
   } catch (e) {
     console.error("Failed to remove SIMKL rating", e);
     return false;
   }
+}
+
+type RawRatingEntry = {
+  rating?: number;
+  movie?: { ids?: SimklIds };
+  show?: { ids?: SimklIds };
+  anime?: { ids?: SimklIds };
+};
+
+type RawRatingsResponse = {
+  movies?: RawRatingEntry[];
+  shows?: RawRatingEntry[];
+  anime?: RawRatingEntry[];
+};
+
+/**
+ * The user's own Simkl ratings, fetched live. The Detail page previously read
+ * only the bootstrap cache (getCachedRatingByTarget), which it never
+ * refreshes, so a rating set on Simkl after startup never showed up. This
+ * fetches GET /sync/ratings once per session and answers from it, merging
+ * every entry into the activities cache too (so the picker and other cache
+ * readers stay consistent). Writes invalidate the fetch so the next read
+ * sees the new value. The in-memory id map keeps reads working even before
+ * the bootstrap cache has ever been built.
+ */
+let userRatingsRequest: Promise<void> | null = null;
+let userRatingsToken: string | null = null;
+const userRatingsById = new Map<string, number>();
+
+function invalidateUserRatings(): void {
+  userRatingsRequest = null;
+  userRatingsToken = null;
+  userRatingsById.clear();
+}
+
+function ratingKey(kind: "movie" | "show" | "anime", ids: SimklIds): string[] {
+  const keys: string[] = [];
+  if (ids.simkl != null) keys.push(`simkl:${ids.simkl}`);
+  if (ids.imdb) keys.push(`imdb:${ids.imdb}`);
+  if (ids.tmdb != null) keys.push(`tmdb:${kind === "movie" ? "movie" : "tv"}:${ids.tmdb}`);
+  if (ids.mal != null) keys.push(`mal:${ids.mal}`);
+  return keys;
+}
+
+async function loadUserRatings(): Promise<void> {
+  const data = await simklRequest<RawRatingsResponse>("/sync/ratings");
+  const mergeList = (list: RawRatingEntry[] | undefined, kind: "movie" | "show" | "anime") => {
+    for (const entry of list ?? []) {
+      const node =
+        kind === "movie"
+          ? entry.movie
+          : kind === "anime"
+            ? entry.anime || entry.show || entry.movie
+            : entry.show;
+      const ids = node?.ids;
+      if (!ids || typeof entry.rating !== "number") continue;
+      for (const key of ratingKey(kind, ids)) userRatingsById.set(key, entry.rating);
+      if (ids.simkl != null) {
+        updateCachedRatingByTarget({ kind, ids: { simkl: ids.simkl } }, entry.rating);
+      }
+    }
+  };
+  mergeList(data?.movies, "movie");
+  mergeList(data?.shows, "show");
+  mergeList(data?.anime, "anime");
+}
+
+export async function fetchSimklUserRating(target: SimklTarget): Promise<number | null> {
+  const token = getSession()?.accessToken ?? null;
+  if (!token) return getCachedRatingByTarget(target);
+  if (!userRatingsRequest || userRatingsToken !== token) {
+    userRatingsToken = token;
+    userRatingsRequest = loadUserRatings().catch(() => {});
+  }
+  await userRatingsRequest;
+  const cached = getCachedRatingByTarget(target);
+  if (cached != null) return cached;
+  const kind =
+    target.kind === "movie"
+      ? "movie"
+      : target.kind === "anime" || target.kind === "anime-episode"
+        ? "anime"
+        : "show";
+  const ids =
+    target.kind === "episode"
+      ? target.show.ids
+      : target.kind === "anime-episode"
+        ? target.anime.ids
+        : target.ids;
+  for (const key of ratingKey(kind, ids)) {
+    const hit = userRatingsById.get(key);
+    if (hit != null) return hit;
+  }
+  return null;
 }

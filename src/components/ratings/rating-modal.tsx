@@ -9,6 +9,8 @@ import { useView } from "@/lib/view";
 import { useRating } from "@/lib/ratings/store";
 import { rate, unrate, REVIEW_MAX } from "@/lib/ratings/actions";
 import type { RatingTarget } from "@/lib/ratings/types";
+import type { FanOutResult } from "@/lib/ratings/hierarchy";
+import { RATING_PROVIDER_LABELS } from "@/lib/ratings/hierarchy-order";
 import { emitListToast } from "@/components/lists/list-toast";
 import { RatingStars } from "./rating-stars";
 
@@ -23,12 +25,34 @@ function errorText(e: unknown, t: (s: string) => string, action: "save" | "remov
   return action === "remove" ? t("Could not remove your rating") : t("Could not save your rating");
 }
 
-export function RatingModal({ target, onClose }: { target: RatingTarget; onClose: () => void }) {
+export function RatingModal({
+  target,
+  hierarchy,
+  onSaveToTrackers,
+  onRemoveFromTrackers,
+  onClose,
+}: {
+  target: RatingTarget;
+  /** The hierarchy's rating for this title, if a connected tracker has one. */
+  hierarchy?: { score: number; source: string } | null;
+  onSaveToTrackers?: (score: number) => Promise<FanOutResult[]>;
+  onRemoveFromTrackers?: () => Promise<FanOutResult[]>;
+  onClose: () => void;
+}) {
   const t = useT();
   const { openSettings } = useView();
   const signedIn = !!authToken();
   const existing = useRating(target.itemKey);
-  const [selected, setSelected] = useState(existing?.score ?? 0);
+  // The hierarchy rating wins over the Harbor-local one; the local rating is
+  // the fallback when no tracker has rated the title.
+  const effectiveScore = hierarchy?.score ?? existing?.score ?? 0;
+  const [selected, setSelected] = useState(effectiveScore);
+  const touchedRef = useRef(false);
+  // The hierarchy read can resolve after the modal opens; adopt it only while
+  // the user has not picked a different score yet.
+  useEffect(() => {
+    if (!touchedRef.current) setSelected(effectiveScore);
+  }, [effectiveScore]);
   const [hover, setHover] = useState(0);
   const [busy, setBusy] = useState(false);
   const [reviewing, setReviewing] = useState(!!existing?.review);
@@ -53,7 +77,7 @@ export function RatingModal({ target, onClose }: { target: RatingTarget; onClose
 
   const display = hover || selected || 0;
   const dirty =
-    selected !== (existing?.score ?? 0) ||
+    selected !== effectiveScore ||
     (reviewing && (draft !== (existing?.review ?? "") || spoiler !== (existing?.spoiler ?? false)));
 
   const save = async () => {
@@ -64,7 +88,17 @@ export function RatingModal({ target, onClose }: { target: RatingTarget; onClose
         review: reviewing ? draft : existing?.review,
         spoiler: reviewing ? spoiler : existing?.spoiler,
       });
-      emitListToast(t("Rating saved"));
+      const results = await onSaveToTrackers?.(selected);
+      const failed = (results ?? []).filter((r) => !r.ok);
+      if (failed.length > 0) {
+        emitListToast(
+          t("Rating saved, but {names} did not update", {
+            names: failed.map((r) => RATING_PROVIDER_LABELS[r.provider]).join(", "),
+          }),
+        );
+      } else {
+        emitListToast(t("Rating saved"));
+      }
       onClose();
     } catch (e) {
       emitListToast(errorText(e, t, "save"));
@@ -77,7 +111,8 @@ export function RatingModal({ target, onClose }: { target: RatingTarget; onClose
     if (busy) return;
     setBusy(true);
     try {
-      await unrate(target.itemKey);
+      if (existing) await unrate(target.itemKey);
+      if (hierarchy) await onRemoveFromTrackers?.();
       emitListToast(t("Rating removed"));
       onClose();
     } catch (e) {
@@ -125,6 +160,11 @@ export function RatingModal({ target, onClose }: { target: RatingTarget; onClose
               <div className="line-clamp-2 text-[15px] font-semibold leading-tight text-ink">
                 {target.title}
               </div>
+              {hierarchy && (
+                <div className="text-[12px] text-ink-subtle">
+                  {t("From {source}", { source: hierarchy.source })}
+                </div>
+              )}
             </div>
           </div>
 
@@ -168,7 +208,10 @@ export function RatingModal({ target, onClose }: { target: RatingTarget; onClose
                 <RatingStars
                   value={selected}
                   size={30}
-                  onChange={setSelected}
+                  onChange={(v) => {
+                    touchedRef.current = true;
+                    setSelected(v);
+                  }}
                   onHover={setHover}
                   ariaLabel={t("Your rating")}
                 />
@@ -221,7 +264,7 @@ export function RatingModal({ target, onClose }: { target: RatingTarget; onClose
               )}
 
               <div className="mt-1 flex w-full items-center gap-2">
-                {existing && (
+                {(existing || hierarchy) && (
                   <button
                     type="button"
                     onClick={remove}
