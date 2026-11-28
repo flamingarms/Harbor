@@ -190,6 +190,37 @@ export async function removeRating(target: TraktTarget): Promise<void> {
   await traktRequest("/sync/ratings/remove", { method: "POST", authed: true, body });
 }
 
+type RawUserRating = {
+  rating?: number;
+  movie?: { ids?: TraktIds };
+  show?: { ids?: TraktIds };
+  episode?: { ids?: TraktIds };
+};
+
+/** The rated title's ids live in the node named after the list type. */
+function ratingEntryIds(entry: RawUserRating, kind: TraktTarget["kind"]): TraktIds | undefined {
+  if (kind === "movie") return entry.movie?.ids;
+  if (kind === "episode") return entry.episode?.ids;
+  return entry.show?.ids;
+}
+
+/**
+ * Match a ratings-list entry against the requested title. Trakt's
+ * /sync/ratings/{type} endpoint takes no id filter, so it returns the whole
+ * list; taking data[0] would return an arbitrary title's rating. TMDB decides
+ * when both sides carry it, otherwise IMDb; an entry carrying neither matching
+ * id never matches.
+ */
+function ratingEntryMatches(entry: RawUserRating, target: TraktTarget): boolean {
+  const entryIds = ratingEntryIds(entry, target.kind);
+  if (!entryIds) return false;
+  const want: TraktIds =
+    target.kind === "episode" ? (target.episodeIds ?? target.show.ids) : target.ids;
+  if (want.tmdb != null && entryIds.tmdb != null) return want.tmdb === entryIds.tmdb;
+  if (want.imdb && entryIds.imdb) return want.imdb === entryIds.imdb;
+  return false;
+}
+
 export async function getUserRating(target: TraktTarget): Promise<number | null> {
   const session = getSession();
   if (!session?.accessToken) return null;
@@ -216,8 +247,9 @@ export async function getUserRating(target: TraktTarget): Promise<number | null>
       redirect: "manual",
     });
     if (res.status >= 200 && res.status < 300) {
-      const data = (await res.json()) as { rating: number }[];
-      return data[0]?.rating ?? null;
+      const data = (await res.json()) as RawUserRating[];
+      const match = data.find((entry) => ratingEntryMatches(entry, target));
+      return typeof match?.rating === "number" ? match.rating : null;
     }
     return null;
   } catch {

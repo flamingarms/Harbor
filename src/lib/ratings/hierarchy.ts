@@ -80,22 +80,40 @@ async function resolveSimklTarget(
   return tgt;
 }
 
-function resolveTraktTarget(harborId: string): TraktTarget | null {
+/**
+ * Resolve a Trakt target for a title, correcting the kind from the Detail
+ * page's mediaType. stremioIdToTraktTarget infers kind from the id shape
+ * alone, so a bare series IMDb id ("tt…") comes back as a movie; without the
+ * correction a series would read /sync/ratings/movies and never find its
+ * rating. Mirrors resolveSimklTarget. Exported for tests.
+ */
+export function resolveTraktTarget(
+  harborId: string,
+  mediaType: HierarchyRatingInput["mediaType"],
+): TraktTarget | null {
   const resolution = stremioIdToTraktTarget(harborId);
   if (!resolution.ok) return null;
-  if (resolution.target.kind === "episode") return null;
-  return resolution.target;
+  let target = resolution.target;
+  if (target.kind === "episode") return null;
+  if ((mediaType === "series" || mediaType === "anime") && target.kind === "movie") {
+    target = { kind: "show", ids: target.ids };
+  }
+  if (mediaType === "movie" && target.kind === "show") {
+    target = { kind: "movie", ids: target.ids };
+  }
+  return target;
 }
 
 /**
  * Trakt writes need a TMDB id; reads accept IMDb too. Resolve one from the
- * IMDb id when the target only carries IMDb.
+ * IMDb id when the target only carries IMDb. Exported for tests.
  */
-async function resolveTraktTargetForWrite(
+export async function resolveTraktTargetForWrite(
   harborId: string,
+  mediaType: HierarchyRatingInput["mediaType"],
   tmdbKey: string,
 ): Promise<TraktTarget | null> {
-  const target = resolveTraktTarget(harborId);
+  const target = resolveTraktTarget(harborId, mediaType);
   if (!target || target.kind === "episode") return null;
   if (target.ids.tmdb != null) return target;
   const imdb = target.ids.imdb;
@@ -110,13 +128,14 @@ async function resolveTraktTargetForWrite(
   if (!match) return null;
   const tmdb = Number(match[2]);
   if (!Number.isFinite(tmdb)) return null;
-  return target.kind === "movie"
-    ? { kind: "movie", ids: { tmdb } }
-    : { kind: "show", ids: { tmdb } };
+  // Respect the kind TMDB resolved: a series whose IMDb has no movie match
+  // falls back to a tv id, which must stay a show — building it as a movie
+  // would rate the wrong movie that happens to share the TMDB id.
+  return match[1] === "tv" ? { kind: "show", ids: { tmdb } } : { kind: "movie", ids: { tmdb } };
 }
 
 async function readTrakt(input: HierarchyRatingInput): Promise<number | null> {
-  const target = resolveTraktTarget(input.harborId);
+  const target = resolveTraktTarget(input.harborId, input.mediaType);
   if (!target) return null;
   return getTraktUserRating(target);
 }
@@ -171,7 +190,11 @@ async function writeTrakt(
   connections: HierarchyConnections,
 ): Promise<boolean> {
   try {
-    const target = await resolveTraktTargetForWrite(input.harborId, connections.tmdbKey);
+    const target = await resolveTraktTargetForWrite(
+      input.harborId,
+      input.mediaType,
+      connections.tmdbKey,
+    );
     if (!target) return false;
     await rateTraktContent(target, score10);
     return true;
@@ -212,7 +235,11 @@ async function removeTrakt(
   connections: HierarchyConnections,
 ): Promise<boolean> {
   try {
-    const target = await resolveTraktTargetForWrite(input.harborId, connections.tmdbKey);
+    const target = await resolveTraktTargetForWrite(
+      input.harborId,
+      input.mediaType,
+      connections.tmdbKey,
+    );
     if (!target) return false;
     await removeTraktRating(target);
     return true;
